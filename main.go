@@ -92,6 +92,7 @@ func main() {
 
 	flag.Parse()
 
+	r.spanName = spanName
 	if genSpanSize <= 10 {
 		log.Fatalf("Span size has to be bigger than 10, %d", genSpanSize)
 	}
