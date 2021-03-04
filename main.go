@@ -18,8 +18,9 @@ var (
 )
 
 type random struct {
-	rand   *rand.Rand
-	tracer lightstep.Tracer
+	spanName string
+	rand     *rand.Rand
+	tracer   lightstep.Tracer
 }
 
 func (r *random) Read(p []byte) (int, error) {
@@ -29,6 +30,7 @@ func (r *random) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 func (r *random) createSpans(num int, size int64) {
+	log.Infof("create %d spans of size %d", num, size)
 	for i := 0; i < num; i++ {
 		r.createSpan(size)
 	}
@@ -44,7 +46,7 @@ func (r *random) createSpan(size int64) {
 		log.Fatalf("Failed to read value: %v", err)
 	}
 
-	span := r.tracer.StartSpan("myspan")
+	span := r.tracer.StartSpan(r.spanName)
 	defer span.Finish()
 	span.SetTag(string(name), string(value))
 }
@@ -57,6 +59,8 @@ func main() {
 	var (
 		useGRPC            bool
 		logEvents          bool
+		spanName           string
+		componentName      string
 		token              string
 		hostPort           string
 		maxBufferedSpans   int
@@ -70,9 +74,10 @@ func main() {
 
 		propagators = make(map[opentracing.BuiltinFormat]lightstep.Propagator)
 	)
-
 	flag.BoolVar(&useGRPC, "grpc", true, "enable to use GRPC")
 	flag.BoolVar(&logEvents, "log-events", true, "enable to log all events")
+	flag.StringVar(&spanName, "span-name", "myspan", "set span name")
+	flag.StringVar(&componentName, "component-name", "mycomponent", "set component name")
 	flag.StringVar(&token, "token", "", "set lighstep token")
 	flag.StringVar(&hostPort, "host", "", "set destination to satellites")
 	flag.IntVar(&maxBufferedSpans, "max-buffered-spans", 1024, "set maxbufferedspans")
@@ -109,6 +114,10 @@ func main() {
 		lightstep.SetGlobalEventHandler(createEventLogger())
 	}
 
+	tags := map[string]interface{}{
+		lightstep.ComponentNameKey: componentName,
+	}
+
 	opts := lightstep.Options{
 		AccessToken: token,
 		Collector: lightstep.Endpoint{
@@ -116,8 +125,8 @@ func main() {
 			Port:      port,
 			Plaintext: false,
 		},
-		UseGRPC: useGRPC,
-		//Tags:                        tags,
+		UseGRPC:                     useGRPC,
+		Tags:                        tags,
 		MaxBufferedSpans:            maxBufferedSpans,
 		GRPCMaxCallSendMsgSizeBytes: grpcMaxMsgSize,
 		ReportingPeriod:             maxReportingPeriod,
@@ -141,7 +150,6 @@ func main() {
 			log.Info("quit")
 			return
 		case <-ticker.C:
-			log.Info("tick")
 			r.createSpans(genSpans, genSpanSize)
 		}
 	}
