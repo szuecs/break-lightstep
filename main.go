@@ -18,9 +18,12 @@ var (
 )
 
 type random struct {
-	spanName string
-	rand     *rand.Rand
-	tracer   lightstep.Tracer
+	maxTagKeys int
+	tagKeySize int
+	rand       *rand.Rand
+	spanName   string
+	tagKeys    []string
+	tracer     lightstep.Tracer
 }
 
 func (r *random) Read(p []byte) (int, error) {
@@ -32,16 +35,13 @@ func (r *random) Read(p []byte) (int, error) {
 func (r *random) createSpans(num int, size int64) {
 	log.Infof("create %d spans of size %d", num, size)
 	for i := 0; i < num; i++ {
-		r.createSpan(size)
+		r.createSpan(i%r.maxTagKeys, size)
 	}
 }
-func (r *random) createSpan(size int64) {
-	name, err := io.ReadAll(io.LimitReader(r, 10))
-	if err != nil {
-		log.Fatalf("Failed to read name: %v", err)
-	}
+func (r *random) createSpan(tagKey int, size int64) {
+	name := r.tagKeys[tagKey]
 
-	value, err := io.ReadAll(io.LimitReader(r, size-10))
+	value, err := io.ReadAll(io.LimitReader(r, size-int64(r.tagKeySize)))
 	if err != nil {
 		log.Fatalf("Failed to read value: %v", err)
 	}
@@ -65,6 +65,7 @@ func main() {
 		hostPort           string
 		maxBufferedSpans   int
 		grpcMaxMsgSize     int
+		genTagKeys         int
 		genSpans           int
 		genSpanSize        int64
 		genInterval        time.Duration
@@ -85,6 +86,8 @@ func main() {
 	flag.DurationVar(&maxReportingPeriod, "max-reporting-period", 2500*time.Millisecond, "set max reporting period")
 	flag.DurationVar(&minReportingPeriod, "min-reporting-period", 500*time.Millisecond, "set min reporting period")
 
+	flag.IntVar(&genTagKeys, "generate-tag-keys", 1, "number of different tag keys to generate")
+	flag.IntVar(&r.tagKeySize, "generate-tag-key-size", 10, "Size of tag keys to generate")
 	flag.IntVar(&genSpans, "generate-spans", 10, "number of spans to generate")
 	flag.Int64Var(&genSpanSize, "generate-span-size", 1024, "size of one span")
 	flag.DurationVar(&genInterval, "generate-interval", 50*time.Millisecond, "generate span interval")
@@ -95,6 +98,16 @@ func main() {
 	r.spanName = spanName
 	if genSpanSize <= 10 {
 		log.Fatalf("Span size has to be bigger than 10, %d", genSpanSize)
+	}
+
+	r.maxTagKeys = genTagKeys
+	r.tagKeys = make([]string, genTagKeys)
+	for i := 0; i < genTagKeys; i++ {
+		k, err := io.ReadAll(io.LimitReader(r, int64(r.tagKeySize)))
+		if err != nil {
+			log.Fatalf("Failed to read random: %v", err)
+		}
+		r.tagKeys[i] = string(k)
 	}
 
 	a := strings.Split(hostPort, ":")
